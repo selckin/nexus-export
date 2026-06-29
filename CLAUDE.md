@@ -33,17 +33,29 @@ NEXUS_PASSWORD=… java -jar target/nexus-export.jar --url https://<nexus> --use
 Two distributable forms, both driven off the shade uber-jar (`target/nexus-export.jar`):
 
 - **Portable uber-jar** — runnable anywhere with Java 21 (`java -jar`).
-- **Self-contained app-image** — `package/build-appimage.sh <version>` runs `jdeps` to compute the
+- **Self-contained app-image** — `package/build-appimage.sh [version]` runs `jdeps` to compute the
   required JDK modules, adds `jdk.crypto.ec` (EC/ECDHE TLS) + `jdk.charsets` (these are loaded
   reflectively/via ServiceLoader and so are invisible to `jdeps` — dropping them breaks HTTPS),
-  then `jpackage --type app-image` bundles a trimmed JRE into `dist/nexus-export/`. No Java needed
-  at runtime; the native launcher loads the bundled `libjvm` directly (the runtime's `bin/java` is
-  stripped). `dist/` is gitignored.
+  then `jpackage --type app-image` bundles a trimmed JRE under `dist/`. No Java needed at runtime;
+  the native launcher loads the bundled `libjvm` directly (the runtime's `bin/java` is stripped).
+  `dist/` is gitignored. Per-OS output layout differs: `dist/nexus-export/` (Linux/Windows) vs
+  `dist/nexus-export.app/` (macOS) — the zip step globs `nexus-export*` to catch both.
 
-`.github/workflows/release.yml` fires on a `v*` tag: a per-OS matrix (linux-x64, macos-x64,
-macos-arm64, windows-x64) builds the app-image, zips it, and `softprops/action-gh-release` attaches
-the zips (plus the portable jar, from the linux job) to the GitHub Release. Tag-derived values flow
-through `env:` into `$VARS` — never `${{ }}`-interpolated into a `run:` body — to avoid injection.
+Gotcha: macOS's bundler rejects an app-version whose first integer is 0 (or empty), so the script
+passes `--app-version` to jpackage **only** when it's `1-3` dotted integers with a first number `>= 1`
+(e.g. a `v0.x` tag would otherwise fail only the macOS jobs); otherwise jpackage's default is used.
+The version is bundle metadata only — the tool reports its own `--version` from the jar.
+
+`.github/workflows/release.yml` runs on **every branch push** and on `v*` **tags**. The per-OS matrix
+(linux-x64, macos-x64, macos-arm64, windows-x64) always builds + zips the app-image and uploads it as a
+run artifact (`actions/upload-artifact`, one immutable artifact per OS). On a tag, a `create-release` job
+opens the Release first and each matrix job additionally `gh release upload --clobber`s its zip (plus the
+portable jar, from the linux job); on a branch push that step is skipped. Branch builds have no version, so the build id is
+`<branch-name-with-slashes-dashed>-<short-sha>` (non-numeric → jpackage default app-version). Runner labels are pinned
+(`macos-15`/`macos-15-intel`, not the migrating `macos-latest`; `macos-13` was retired Dec 2025).
+Publishing uses the GitHub CLI only — **no third-party actions** (only GitHub's own `actions/checkout`,
+`actions/setup-java`, `actions/upload-artifact`). Ref-derived values flow through `env:` into `$VARS` —
+never `${{ }}`-interpolated into a `run:` body.
 
 ## Architecture
 

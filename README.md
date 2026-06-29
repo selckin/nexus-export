@@ -21,9 +21,17 @@ self-contained app-image per OS — every zip bundles a trimmed Java 21 runtime,
 Unzip and run the launcher:
 
 ```bash
-# Linux / macOS
+# Linux
 unzip nexus-export-<version>-linux-x64.zip
 NEXUS_PASSWORD=… ./nexus-export/bin/nexus-export \
+  --url https://nexus.example.com --user admin --list
+```
+
+```bash
+# macOS (the app-image is a .app bundle)
+unzip nexus-export-<version>-macos-arm64.zip
+xattr -dr com.apple.quarantine ./nexus-export.app     # clear the download quarantine
+NEXUS_PASSWORD=… ./nexus-export.app/Contents/MacOS/nexus-export \
   --url https://nexus.example.com --user admin --list
 ```
 
@@ -34,8 +42,8 @@ $env:NEXUS_PASSWORD = "…"
 .\nexus-export\nexus-export.exe --url https://nexus.example.com --user admin --list
 ```
 
-> The binaries are unsigned. On macOS, clear the download quarantine with
-> `xattr -dr com.apple.quarantine ./nexus-export`; on Windows, SmartScreen may warn on first run.
+> The binaries are unsigned: macOS quarantines them on download (clear it with the `xattr`
+> line above); on Windows, SmartScreen may warn on first run.
 
 Already have **Java 21** and want the smallest artifact? Each release also attaches the
 portable uber-jar `nexus-export-<version>.jar` — run it with `java -jar nexus-export-<version>.jar …`.

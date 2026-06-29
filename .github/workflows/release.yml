@@ -1,19 +1,50 @@
-name: release
+name: build & release
 
-# Push a version tag (e.g. v1.2.3) to build self-contained app-images for each
-# OS and attach them to a GitHub Release. Each app-image bundles a trimmed JRE,
-# so end users need no Java installed.
+# On any branch push: build the self-contained app-image for every OS and upload
+# them as run artifacts (CI verification + downloadable builds).
+# On a version tag (vX.Y.Z): additionally publish them to a GitHub Release.
+# Each app-image bundles a trimmed JRE, so end users need no Java installed.
+# Publishing uses the GitHub CLI only — no third-party actions.
 on:
   push:
+    branches:
+      - '**'
     tags:
       - 'v*'
 
 permissions:
   contents: write   # required to create the Release and upload assets
 
+# Supersede in-progress runs for the same branch, but never cancel a tag's
+# release publish.
+concurrency:
+  group: build-release-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  GH_TOKEN: ${{ github.token }}
+  GH_REPO: ${{ github.repository }}
+
 jobs:
+  # Tag builds only: open the Release once up front so the per-OS jobs can upload
+  # into it without racing each other to create it.
+  create-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create the GitHub Release (idempotent)
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 \
+            || gh release create "$TAG" --title "$TAG" --generate-notes
+
   appimage:
     name: app-image (${{ matrix.label }})
+    needs: create-release
+    # Run on branch push (create-release is skipped) and on tag (it succeeded);
+    # skip only if create-release actually failed.
+    if: ${{ !failure() && !cancelled() }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -21,37 +52,42 @@ jobs:
         include:
           - os: ubuntu-latest
             label: linux-x64
-          - os: macos-13
+          - os: macos-15-intel
             label: macos-x64
-          - os: macos-latest
+          - os: macos-15
             label: macos-arm64
           - os: windows-latest
             label: windows-x64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
           cache: maven
 
-      # GITHUB_REF_NAME is read as a shell env var (not ${{ }} interpolated),
-      # so a crafted tag name cannot inject into the script.
-      - name: Derive version from tag
+      # On a tag, version = tag minus 'v'. On a branch push there is no version,
+      # so use a filesystem-safe build id (branch with '/'->'-', plus short SHA).
+      # Built-in env vars are read directly (not ${{ }} interpolated) so a crafted
+      # ref name cannot inject into the script.
+      - name: Derive version
         id: ver
         shell: bash
         run: |
-          v="${GITHUB_REF_NAME#v}"          # v1.2.3 -> 1.2.3
-          echo "version=$v"            >> "$GITHUB_OUTPUT"
-          echo "appversion=${v%%-*}"   >> "$GITHUB_OUTPUT"   # strip any -rc1 suffix; jpackage wants numeric
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            v="${GITHUB_REF_NAME#v}"
+          else
+            v="${GITHUB_REF_NAME//\//-}-${GITHUB_SHA:0:7}"
+          fi
+          echo "version=$v"          >> "$GITHUB_OUTPUT"
+          echo "appversion=${v%%-*}" >> "$GITHUB_OUTPUT"   # macOS-valid only for clean tags; else ignored
 
       - name: Build uber-jar
         shell: bash
         run: ./mvnw -T1C -B -ntp clean package
 
-      # Untrusted values are passed via env: and referenced as $VARS, never
-      # interpolated into the script body.
+      # Untrusted values pass via env: into $VARS, never interpolated into a script body.
       - name: Build self-contained app-image
         shell: bash
         env:
@@ -66,7 +102,8 @@ jobs:
           LABEL: ${{ matrix.label }}
         run: |
           cd dist
-          zip -qr "../nexus-export-${VERSION}-${LABEL}.zip" nexus-export
+          # nexus-export* matches the Linux directory and the macOS .app bundle
+          zip -qr "../nexus-export-${VERSION}-${LABEL}.zip" nexus-export*
 
       - name: Package app-image (windows)
         if: runner.os == 'Windows'
@@ -76,25 +113,32 @@ jobs:
           LABEL: ${{ matrix.label }}
         run: Compress-Archive -Path dist/nexus-export -DestinationPath "nexus-export-$env:VERSION-$env:LABEL.zip"
 
-      - name: Also stage the portable uber-jar (needs Java 21)
+      - name: Stage the portable uber-jar (needs Java 21)
         if: matrix.label == 'linux-x64'
         shell: bash
         env:
           VERSION: ${{ steps.ver.outputs.version }}
         run: cp target/nexus-export.jar "nexus-export-${VERSION}.jar"
 
-      # matrix.label is a trusted literal from this file; the version is matched
-      # by the glob's * so it never appears in an action input.
-      - name: Attach app-image to the Release
-        uses: softprops/action-gh-release@v2
+      # Always publish the build as a run artifact (one per OS — v7 artifacts are
+      # immutable, so the name must be unique per job).
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
         with:
-          fail_on_unmatched_files: true
-          generate_release_notes: true
-          files: nexus-export-*-${{ matrix.label }}.zip
+          name: nexus-export-${{ matrix.label }}
+          path: |
+            nexus-export-*-${{ matrix.label }}.zip
+            nexus-export-*.jar
+          if-no-files-found: error
 
-      - name: Attach portable uber-jar to the Release
-        if: matrix.label == 'linux-x64'
-        uses: softprops/action-gh-release@v2
-        with:
-          fail_on_unmatched_files: true
-          files: nexus-export-*.jar
+      # Tag builds only: attach the same files to the GitHub Release.
+      - name: Upload assets to the Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+          LABEL: ${{ matrix.label }}
+        run: |
+          assets=( nexus-export-*-"$LABEL".zip )
+          [ "$LABEL" = linux-x64 ] && assets+=( nexus-export-*.jar )
+          gh release upload "$TAG" --clobber "${assets[@]}"
