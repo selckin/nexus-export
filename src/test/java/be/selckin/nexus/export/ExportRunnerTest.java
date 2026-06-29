@@ -16,6 +16,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
 class ExportRunnerTest {
 
@@ -55,9 +56,59 @@ class ExportRunnerTest {
         ByteArrayOutputStream buf = new ByteArrayOutputStream();
         int code = new ExportRunner(new PrintStream(buf, true, UTF_8))
                 .run(client(), List.of("npm-private", "does-not-exist"), out, false, false, 2, 0);
-        assertEquals(0, code);
+        // all requested repos are non-maven2 → exit 2, not 0
+        assertEquals(2, code);
         assertFalse(Files.exists(out.resolve("npm-private")));
         assertTrue(buf.toString(UTF_8).contains("skipping"));
+        assertTrue(buf.toString(UTF_8).contains("ERROR"));
+    }
+
+    @Test
+    void someValidSomeInvalidStillExports(@TempDir Path out) throws Exception {
+        ByteArrayOutputStream buf = new ByteArrayOutputStream();
+        int code = new ExportRunner(new PrintStream(buf, true, UTF_8))
+                .run(client(), List.of("releases", "does-not-exist"), out, false, false, 2, 0);
+        // One valid repo matched → normal 0 outcome
+        assertEquals(0, code);
+        assertEquals("hello", Files.readString(out.resolve("releases/com/x/a/1.0/a-1.0.jar")));
+        assertTrue(buf.toString(UTF_8).contains("skipping"));
+    }
+
+    @Test
+    void partialExportBeforeFatalPrintsReport(@TempDir Path out) throws IOException {
+        // Client: repoA exports one asset successfully, then repoB's listAssets throws NexusException
+        NexusClient twoRepoClient = new NexusClient() {
+            @Override
+            public List<Repository> listRepositories() {
+                return List.of(
+                        new Repository("repoA", "maven2", "hosted", "http://fake/a"),
+                        new Repository("repoB", "maven2", "hosted", "http://fake/b"));
+            }
+
+            @Override
+            public AssetPage listAssets(String repository, String continuationToken) {
+                if ("repoB".equals(repository)) {
+                    throw new NexusException("HTTP 401");
+                }
+                Asset a = new Asset("1", "com/x/a/1.0/a-1.0.jar", "http://fake/a.jar",
+                        new Checksum(HELLO_SHA1, "5d41402abc4b2a76b9719d911017c592", null), 5);
+                return new AssetPage(List.of(a), null);
+            }
+
+            @Override
+            public void download(String url, Path dest) throws IOException {
+                Files.write(dest, "hello".getBytes(UTF_8));
+            }
+        };
+
+        ByteArrayOutputStream buf = new ByteArrayOutputStream();
+        int code = new ExportRunner(new PrintStream(buf, true, UTF_8))
+                .run(twoRepoClient, List.of("repoA", "repoB"), out, false, false, 1, 0);
+        assertEquals(2, code);
+        String output = buf.toString(UTF_8);
+        assertTrue(output.contains("ERROR"));
+        // report printed even on fatal — should show repoA's download
+        assertTrue(output.contains("repoA"), "output should contain repoA tally: " + output);
     }
 
     @Test

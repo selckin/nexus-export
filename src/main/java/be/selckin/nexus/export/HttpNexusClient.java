@@ -23,23 +23,36 @@ public final class HttpNexusClient implements NexusClient {
     private static final Logger log = LoggerFactory.getLogger(HttpNexusClient.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    private final HttpClient http = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).build();
+    private final HttpClient http;
     private final String baseUrl;
     private final String authHeader;
     private final int maxRetries;
     private final Duration baseBackoff;
+    // java.net.http offers only a total-request timeout (no idle-read timeout), so the 10-min
+    // default is a generous cap that prevents infinite hangs while allowing large artifacts.
+    private final Duration requestTimeout;
 
     public HttpNexusClient(String baseUrl, String user, String password) {
-        this(baseUrl, user, password, 4, Duration.ofSeconds(1));
+        this(baseUrl, user, password, 4, Duration.ofSeconds(1), Duration.ofMinutes(10));
     }
 
     public HttpNexusClient(String baseUrl, String user, String password, int maxRetries, Duration baseBackoff) {
+        this(baseUrl, user, password, maxRetries, baseBackoff, Duration.ofMinutes(10));
+    }
+
+    public HttpNexusClient(String baseUrl, String user, String password,
+                           int maxRetries, Duration baseBackoff, Duration requestTimeout) {
         this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         this.authHeader = user == null ? null
                 : "Basic " + Base64.getEncoder().encodeToString(
                         (user + ":" + password).getBytes(StandardCharsets.UTF_8));
         this.maxRetries = maxRetries;
         this.baseBackoff = baseBackoff;
+        this.requestTimeout = requestTimeout;
+        this.http = HttpClient.newBuilder()
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .connectTimeout(Duration.ofSeconds(30))
+                .build();
     }
 
     @Override
@@ -83,6 +96,7 @@ public final class HttpNexusClient implements NexusClient {
 
     private HttpRequest.Builder request(String url) {
         HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url)).GET()
+                .timeout(requestTimeout)
                 .header("Accept", "application/json");
         if (authHeader != null) {
             b.header("Authorization", authHeader);

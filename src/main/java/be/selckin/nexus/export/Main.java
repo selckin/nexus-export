@@ -48,6 +48,7 @@ public final class Main implements Callable<Integer> {
             String resolvedUrl = resolveRequired(url, System.getenv("NEXUS_URL"), "--url / NEXUS_URL");
             String resolvedUser = resolveOptional(user, System.getenv("NEXUS_USER"));
             String resolvedPassword = resolveOptional(password, System.getenv("NEXUS_PASSWORD"));
+            validateCredentials(resolvedUser, resolvedPassword);
 
             NexusClient client = new HttpNexusClient(resolvedUrl, resolvedUser, resolvedPassword);
             List<String> targetRepos = repos.isEmpty() ? List.of("releases", "snapshots") : repos;
@@ -72,6 +73,13 @@ public final class Main implements Callable<Integer> {
             return flag;
         }
         return env;
+    }
+
+    static void validateCredentials(String user, String password) {
+        if (user != null && password == null) {
+            throw new IllegalArgumentException(
+                    "--password (or NEXUS_PASSWORD) is required when --user is set");
+        }
     }
 
     public static void main(String[] args) {

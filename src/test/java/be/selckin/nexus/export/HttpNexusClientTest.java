@@ -176,4 +176,22 @@ class HttpNexusClientTest {
 
         assertNull(seenAuth.get());
     }
+
+    // ---- request timeout ----
+
+    @Test
+    void requestTimesOutRatherThanHangingForever() {
+        server.createContext("/service/rest/v1/repositories", ex -> {
+            // Sleep much longer than the configured timeout
+            try { Thread.sleep(500); } catch (InterruptedException ignored) {}
+            send(ex, 200, "[]".getBytes(UTF_8));
+        });
+        server.start();
+
+        // 1 attempt, tiny backoff, 50ms request timeout
+        HttpNexusClient slowClient = new HttpNexusClient(
+                base, "admin", "secret", 1, Duration.ofMillis(1), Duration.ofMillis(50));
+
+        assertThrows(UncheckedIOException.class, () -> slowClient.listRepositories());
+    }
 }

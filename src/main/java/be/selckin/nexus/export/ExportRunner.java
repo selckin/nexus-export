@@ -30,7 +30,8 @@ public final class ExportRunner {
         if (intervalSeconds <= 0) {
             return null;
         }
-        long startMillis = System.currentTimeMillis();
+        // use nanoTime for monotonic elapsed (wall clock can step backward)
+        long startNanos = System.nanoTime();
         ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "nexus-export-progress");
             t.setDaemon(true);
@@ -39,7 +40,7 @@ public final class ExportRunner {
         scheduler.scheduleAtFixedRate(
                 () -> log.info(formatProgress(currentRepo.get(),
                         report.totalDownloaded(), report.totalSkipped(), report.totalFailed(),
-                        report.totalBytes(), System.currentTimeMillis() - startMillis)),
+                        report.totalBytes(), TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos))),
                 intervalSeconds, intervalSeconds, TimeUnit.SECONDS);
         return scheduler;
     }
@@ -57,6 +58,8 @@ public final class ExportRunner {
 
     public int run(NexusClient client, List<String> repos, Path outRoot,
                    boolean list, boolean dryRun, int threads, int progressIntervalSeconds) {
+        // declare report before try so catch blocks can print partial progress
+        ExportReport report = new ExportReport();
         try {
             List<Repository> all = client.listRepositories();
             if (list) {
@@ -71,18 +74,25 @@ public final class ExportRunner {
                     .map(Repository::name)
                     .collect(Collectors.toSet());
 
-            ExportReport report = new ExportReport();
             ExecutorService pool = Executors.newFixedThreadPool(Math.min(64, Math.max(1, threads)));
             AtomicReference<String> currentRepo = new AtomicReference<>("");
             ScheduledExecutorService heartbeat = startHeartbeat(progressIntervalSeconds, report, currentRepo);
             try {
+                // track how many requested repos actually matched maven2
+                int matchedCount = 0;
                 for (String repo : repos) {
                     if (!maven2.contains(repo)) {
                         out.println("WARN skipping unknown or non-maven2 repository: " + repo);
                         continue;
                     }
+                    matchedCount++;
                     currentRepo.set(repo);
                     new RepoExporter(client, outRoot, pool, dryRun, report).export(repo);
+                }
+                // if no requested repos matched, that is a fatal configuration error
+                if (!repos.isEmpty() && matchedCount == 0) {
+                    out.println("ERROR: no maven2 repositories matched: " + repos);
+                    return 2;
                 }
             } finally {
                 pool.shutdown();
@@ -97,13 +107,23 @@ public final class ExportRunner {
             return report.hasFailures() ? 1 : 0;
         } catch (NexusException e) {
             out.println("ERROR: " + e.getMessage());
+            // print partial report so progress so far is visible
+            if (report.totalDownloaded() + report.totalSkipped() + report.totalFailed() > 0) {
+                out.print(report.render());
+            }
             return 2;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             out.println("ERROR: interrupted");
+            if (report.totalDownloaded() + report.totalSkipped() + report.totalFailed() > 0) {
+                out.print(report.render());
+            }
             return 2;
         } catch (RuntimeException e) {
             out.println("ERROR: " + e.getMessage());
+            if (report.totalDownloaded() + report.totalSkipped() + report.totalFailed() > 0) {
+                out.print(report.render());
+            }
             return 2;
         }
     }

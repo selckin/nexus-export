@@ -27,4 +27,22 @@ class CredentialResolutionTest {
     void optionalReturnsNullWhenBothMissing() {
         assertNull(Main.resolveOptional(null, null));
     }
+
+    // ---- --user without --password must error ----
+
+    @Test
+    void validateCredentialsThrowsWhenUserButNoPassword() {
+        assertThrows(IllegalArgumentException.class,
+                () -> Main.validateCredentials("admin", null));
+    }
+
+    @Test
+    void validateCredentialsAllowsAnonymous() {
+        Main.validateCredentials(null, null); // no exception
+    }
+
+    @Test
+    void validateCredentialsAllowsUserAndPassword() {
+        Main.validateCredentials("admin", "pw"); // no exception
+    }
 }
