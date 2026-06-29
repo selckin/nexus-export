@@ -35,7 +35,7 @@ class ExportRunnerTest {
     void listPrintsMaven2ReposAndExitsZero() {
         ByteArrayOutputStream buf = new ByteArrayOutputStream();
         int code = new ExportRunner(new PrintStream(buf, true, UTF_8))
-                .run(client(), List.of(), Path.of("/unused"), true, false, 2);
+                .run(client(), List.of(), Path.of("/unused"), true, false, 2, 0);
         assertEquals(0, code);
         String printed = buf.toString(UTF_8);
         assertTrue(printed.contains("releases"));
@@ -45,7 +45,7 @@ class ExportRunnerTest {
     @Test
     void exportWritesFilesAndExitsZero(@TempDir Path out) throws Exception {
         int code = new ExportRunner(new PrintStream(new ByteArrayOutputStream(), true, UTF_8))
-                .run(client(), List.of("releases"), out, false, false, 2);
+                .run(client(), List.of("releases"), out, false, false, 2, 0);
         assertEquals(0, code);
         assertEquals("hello", Files.readString(out.resolve("releases/com/x/a/1.0/a-1.0.jar")));
     }
@@ -54,7 +54,7 @@ class ExportRunnerTest {
     void skipsUnknownOrNonMaven2Repo(@TempDir Path out) {
         ByteArrayOutputStream buf = new ByteArrayOutputStream();
         int code = new ExportRunner(new PrintStream(buf, true, UTF_8))
-                .run(client(), List.of("npm-private", "does-not-exist"), out, false, false, 2);
+                .run(client(), List.of("npm-private", "does-not-exist"), out, false, false, 2, 0);
         assertEquals(0, code);
         assertFalse(Files.exists(out.resolve("npm-private")));
         assertTrue(buf.toString(UTF_8).contains("skipping"));
@@ -63,7 +63,7 @@ class ExportRunnerTest {
     @Test
     void dryRunWritesNothing(@TempDir Path out) {
         int code = new ExportRunner(new PrintStream(new ByteArrayOutputStream(), true, UTF_8))
-                .run(client(), List.of("releases"), out, false, true, 2);
+                .run(client(), List.of("releases"), out, false, true, 2, 0);
         assertEquals(0, code);
         assertFalse(Files.exists(out.resolve("releases/com/x/a/1.0/a-1.0.jar")));
     }
@@ -90,7 +90,7 @@ class ExportRunnerTest {
 
         ByteArrayOutputStream buf = new ByteArrayOutputStream();
         int code = new ExportRunner(new PrintStream(buf, true, UTF_8))
-                .run(throwingClient, List.of("releases"), Path.of("/unused"), false, false, 2);
+                .run(throwingClient, List.of("releases"), Path.of("/unused"), false, false, 2, 0);
         assertEquals(2, code);
         assertTrue(buf.toString(UTF_8).contains("ERROR"));
     }

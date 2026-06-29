@@ -49,7 +49,14 @@ into the target repository manager's corresponding repository data directory.
 | `--out` | — | `./export` | Output root directory |
 | `--repo` | — | `releases`, `snapshots` | Repository to export (repeatable) |
 | `--threads` | — | `6` | Parallel downloads per repository |
+| `--progress-interval` | — | `10` | Seconds between progress log lines (`0` = off) |
 | `--list` | — | off | List maven2 repos and exit |
 | `--dry-run` | — | off | Enumerate + report, download nothing |
+
+While exporting, a progress line is logged every `--progress-interval` seconds:
+
+```
+progress: repo=releases downloaded=1234 skipped=56 failed=0, 245.3 MB (8.1 MB/s), elapsed 02:30
+```
 
 Exit codes: `0` success, `1` completed with asset failures, `2` fatal (config/auth/connection).

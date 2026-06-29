@@ -33,6 +33,9 @@ public final class Main implements Callable<Integer> {
     @Option(names = "--threads", description = "Parallel downloads per repository (default: 6)")
     int threads = 6;
 
+    @Option(names = "--progress-interval", description = "Seconds between progress log lines (default: 10; 0 = off)")
+    int progressInterval = 10;
+
     @Option(names = "--list", description = "List maven2 repositories and exit")
     boolean list;
 
@@ -49,7 +52,7 @@ public final class Main implements Callable<Integer> {
             NexusClient client = new HttpNexusClient(resolvedUrl, resolvedUser, resolvedPassword);
             List<String> targetRepos = repos.isEmpty() ? List.of("releases", "snapshots") : repos;
 
-            return new ExportRunner(System.out).run(client, targetRepos, out, list, dryRun, threads);
+            return new ExportRunner(System.out).run(client, targetRepos, out, list, dryRun, threads, progressInterval);
         } catch (IllegalArgumentException e) {
             System.err.println("ERROR: " + e.getMessage());
             return 2;

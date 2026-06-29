@@ -46,15 +46,18 @@ public final class ExportReport {
         return byRepo.values().stream().mapToLong(t -> t.failed.get()).sum();
     }
 
+    public long totalBytes() {
+        return byRepo.values().stream().mapToLong(t -> t.bytes.get()).sum();
+    }
+
     public boolean hasFailures() {
         return totalFailed() > 0;
     }
 
     public String render() {
         StringBuilder sb = new StringBuilder();
-        long bytes = byRepo.values().stream().mapToLong(t -> t.bytes.get()).sum();
         sb.append(String.format("totals: downloaded=%d skipped=%d failed=%d bytes=%d%n",
-                totalDownloaded(), totalSkipped(), totalFailed(), bytes));
+                totalDownloaded(), totalSkipped(), totalFailed(), totalBytes()));
         byRepo.forEach((repo, t) -> sb.append(String.format(
                 "  %s: downloaded=%d skipped=%d failed=%d bytes=%d%n",
                 repo, t.downloaded.get(), t.skipped.get(), t.failed.get(), t.bytes.get())));

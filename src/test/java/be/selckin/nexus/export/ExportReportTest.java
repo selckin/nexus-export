@@ -23,6 +23,16 @@ class ExportReportTest {
     }
 
     @Test
+    void totalBytesSumsAcrossRepos() {
+        ExportReport r = new ExportReport();
+        r.downloaded("releases", 100);
+        r.downloaded("releases", 50);
+        r.downloaded("snapshots", 10);
+
+        assertEquals(160, r.totalBytes());
+    }
+
+    @Test
     void recordsFailures() {
         ExportReport r = new ExportReport();
         r.failed("releases", "com/x/a.jar", "checksum mismatch");
