@@ -3,3 +3,5 @@ target/
 .idea/
 # default --out directory for exported repositories
 /export/
+# jpackage app-image output (package/build-appimage.sh)
+/dist/

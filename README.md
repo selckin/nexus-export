@@ -5,12 +5,59 @@ into standard on-disk Maven layouts — one directory per source repo — for mi
 another Maven repository manager. Downloads are SHA-1-verified, `.sha1`/`.md5` sidecars are generated, and re-runs
 skip files already present whose SHA-1 matches (safe to resume after an interruption).
 
+## Download
+
+Each [GitHub Release](https://github.com/selckin/nexus-export/releases) ships a
+self-contained app-image per OS — every zip bundles a trimmed Java 21 runtime, so
+**no Java install is required**:
+
+| Asset | Platform |
+|-------|----------|
+| `nexus-export-<version>-linux-x64.zip`   | Linux x86-64 |
+| `nexus-export-<version>-macos-x64.zip`   | macOS Intel |
+| `nexus-export-<version>-macos-arm64.zip` | macOS Apple Silicon |
+| `nexus-export-<version>-windows-x64.zip` | Windows x86-64 |
+
+Unzip and run the launcher:
+
+```bash
+# Linux / macOS
+unzip nexus-export-<version>-linux-x64.zip
+NEXUS_PASSWORD=… ./nexus-export/bin/nexus-export \
+  --url https://nexus.example.com --user admin --list
+```
+
+```powershell
+# Windows (PowerShell)
+Expand-Archive nexus-export-<version>-windows-x64.zip -DestinationPath .
+$env:NEXUS_PASSWORD = "…"
+.\nexus-export\nexus-export.exe --url https://nexus.example.com --user admin --list
+```
+
+> The binaries are unsigned. On macOS, clear the download quarantine with
+> `xattr -dr com.apple.quarantine ./nexus-export`; on Windows, SmartScreen may warn on first run.
+
+Already have **Java 21** and want the smallest artifact? Each release also attaches the
+portable uber-jar `nexus-export-<version>.jar` — run it with `java -jar nexus-export-<version>.jar …`.
+
 ## Build
 
 ```bash
 ./mvnw -T1C clean package
 # -> target/nexus-export.jar  (executable uber-jar)
 ```
+
+Build a self-contained app-image locally (bundles a trimmed JRE into `dist/nexus-export/`):
+
+```bash
+./mvnw -T1C clean package
+package/build-appimage.sh 1.0.0          # arg = app version
+./dist/nexus-export/bin/nexus-export --help
+```
+
+Tagged releases (`git tag vX.Y.Z && git push --tags`) build these app-images for
+Linux/macOS/Windows in CI and attach them to a GitHub Release — see
+`.github/workflows/release.yml`.
 
 ## Usage
 

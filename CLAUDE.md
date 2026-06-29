@@ -28,6 +28,23 @@ NEXUS_PASSWORD=… java -jar target/nexus-export.jar --url https://<nexus> --use
 `--repo` (repeatable) defaults to `releases`+`snapshots`; `--list`/`--dry-run` are discovery modes;
 `--threads` and `--progress-interval` tune parallelism and heartbeat cadence. See `README.md`.
 
+## Packaging / release
+
+Two distributable forms, both driven off the shade uber-jar (`target/nexus-export.jar`):
+
+- **Portable uber-jar** — runnable anywhere with Java 21 (`java -jar`).
+- **Self-contained app-image** — `package/build-appimage.sh <version>` runs `jdeps` to compute the
+  required JDK modules, adds `jdk.crypto.ec` (EC/ECDHE TLS) + `jdk.charsets` (these are loaded
+  reflectively/via ServiceLoader and so are invisible to `jdeps` — dropping them breaks HTTPS),
+  then `jpackage --type app-image` bundles a trimmed JRE into `dist/nexus-export/`. No Java needed
+  at runtime; the native launcher loads the bundled `libjvm` directly (the runtime's `bin/java` is
+  stripped). `dist/` is gitignored.
+
+`.github/workflows/release.yml` fires on a `v*` tag: a per-OS matrix (linux-x64, macos-x64,
+macos-arm64, windows-x64) builds the app-image, zips it, and `softprops/action-gh-release` attaches
+the zips (plus the portable jar, from the linux job) to the GitHub Release. Tag-derived values flow
+through `env:` into `$VARS` — never `${{ }}`-interpolated into a `run:` body — to avoid injection.
+
 ## Architecture
 
 Request pipeline, each stage in its own file with an explicit interface:
@@ -72,5 +89,3 @@ Behaviors that span files and are easy to break:
   would otherwise apply a different email). Commit with the repo's configured identity — do not pass author
   overrides.
 - Base package `be.selckin.nexus.export`; groupId `be.selckin`.
-
-Design and implementation history live in `docs/superpowers/specs/` and `docs/superpowers/plans/`.
