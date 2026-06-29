@@ -22,7 +22,9 @@ public final class ExportRunner {
         try {
             List<Repository> all = client.listRepositories();
             if (list) {
-                all.forEach(r -> out.printf("%-30s %-8s %s%n", r.name(), r.type(), r.format()));
+                all.stream()
+                        .filter(r -> "maven2".equals(r.format()))
+                        .forEach(r -> out.printf("%-30s %-8s %s%n", r.name(), r.type(), r.format()));
                 return 0;
             }
 

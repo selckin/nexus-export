@@ -39,7 +39,7 @@ class ExportRunnerTest {
         assertEquals(0, code);
         String printed = buf.toString(UTF_8);
         assertTrue(printed.contains("releases"));
-        assertTrue(printed.contains("npm-private"));
+        assertFalse(printed.contains("npm-private"));
     }
 
     @Test
