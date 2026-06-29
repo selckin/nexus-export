@@ -34,7 +34,7 @@ public final class ExportRunner {
                     .collect(Collectors.toSet());
 
             ExportReport report = new ExportReport();
-            ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, threads));
+            ExecutorService pool = Executors.newFixedThreadPool(Math.min(64, Math.max(1, threads)));
             try {
                 for (String repo : repos) {
                     if (!maven2.contains(repo)) {

@@ -23,7 +23,7 @@ public final class HttpNexusClient implements NexusClient {
     private static final Logger log = LoggerFactory.getLogger(HttpNexusClient.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    private final HttpClient http = HttpClient.newHttpClient();
+    private final HttpClient http = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).build();
     private final String baseUrl;
     private final String authHeader;
     private final int maxRetries;
@@ -116,7 +116,7 @@ public final class HttpNexusClient implements NexusClient {
                 if (attempt < maxRetries) sleepBackoff(attempt);
                 continue;
             }
-            if (s >= 400) {
+            if (s >= 300) {
                 throw new IOException("HTTP " + s + " for " + req.uri());
             }
             return resp;

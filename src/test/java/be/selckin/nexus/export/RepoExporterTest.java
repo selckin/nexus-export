@@ -3,6 +3,7 @@ package be.selckin.nexus.export;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -88,6 +89,21 @@ class RepoExporterTest {
     }
 
     @Test
+    void exportFollowsPaginationAcrossPages(@TempDir Path out) throws Exception {
+        ExportReport report = new ExportReport();
+
+        new RepoExporter(new MultiPageFakeNexusClient(), out, SAME_THREAD, false, report)
+                .export("releases");
+
+        Path jarA = out.resolve("releases/com/x/a/1.0/a-1.0.jar");
+        Path jarB = out.resolve("releases/com/x/b/1.0/b-1.0.jar");
+        assertEquals("hello", Files.readString(jarA));
+        assertEquals("hello", Files.readString(jarB));
+        assertEquals(2, report.totalDownloaded());
+        assertFalse(report.hasFailures());
+    }
+
+    @Test
     void recordsFailureOnDownloadError(@TempDir Path out) {
         ExportReport report = new ExportReport();
         Asset missing = new Asset("9", "com/x/missing/1.0/missing-1.0.jar",
@@ -101,5 +117,33 @@ class RepoExporterTest {
 
         assertTrue(report.hasFailures());
         assertEquals(1, report.totalFailed());
+    }
+
+    /** Hand-rolled two-page fake: page 1 → token "P2", page 2 → null. Both assets contain "hello". */
+    private static final class MultiPageFakeNexusClient implements NexusClient {
+
+        private static final byte[] BODY = "hello".getBytes(UTF_8);
+
+        @Override
+        public List<Repository> listRepositories() {
+            return List.of();
+        }
+
+        @Override
+        public AssetPage listAssets(String repository, String continuationToken) {
+            if ("P2".equals(continuationToken)) {
+                Asset b = new Asset("2", "com/x/b/1.0/b-1.0.jar", "http://fake/b.jar",
+                        new Checksum(HELLO_SHA1, null, null), 5);
+                return new AssetPage(List.of(b), null);
+            }
+            Asset a = new Asset("1", "com/x/a/1.0/a-1.0.jar", "http://fake/a.jar",
+                    new Checksum(HELLO_SHA1, null, null), 5);
+            return new AssetPage(List.of(a), "P2");
+        }
+
+        @Override
+        public void download(String url, Path dest) throws IOException {
+            Files.write(dest, BODY);
+        }
     }
 }

@@ -149,6 +149,21 @@ class HttpNexusClientTest {
     }
 
     @Test
+    void downloadFollowsRedirect() throws IOException {
+        server.createContext("/redir", ex -> {
+            ex.getResponseHeaders().set("Location", base + "/final");
+            ex.sendResponseHeaders(302, -1);
+            ex.getResponseBody().close();
+        });
+        server.createContext("/final", ex -> send(ex, 200, "ok".getBytes(UTF_8)));
+        server.start();
+
+        Path dest = Files.createTempFile("redir", ".txt");
+        client().download(base + "/redir", dest);
+        assertEquals("ok", Files.readString(dest));
+    }
+
+    @Test
     void anonymousClientSendsNoAuthHeader() {
         AtomicReference<String> seenAuth = new AtomicReference<>();
         server.createContext("/service/rest/v1/repositories", ex -> {

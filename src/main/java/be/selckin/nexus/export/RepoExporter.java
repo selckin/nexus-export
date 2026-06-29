@@ -34,16 +34,16 @@ public final class RepoExporter {
 
     public void export(String repo) {
         log.info("exporting repository '{}'{}", repo, dryRun ? " (dry-run)" : "");
-        List<CompletableFuture<Void>> futures = new ArrayList<>();
         String token = null;
         do {
             AssetPage page = client.listAssets(repo, token);
+            List<CompletableFuture<Void>> pageFutures = new ArrayList<>();
             for (Asset asset : page.items()) {
-                futures.add(CompletableFuture.runAsync(() -> process(repo, asset), executor));
+                pageFutures.add(CompletableFuture.runAsync(() -> process(repo, asset), executor));
             }
+            CompletableFuture.allOf(pageFutures.toArray(new CompletableFuture[0])).join();
             token = page.continuationToken();
-        } while (token != null);
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        } while (token != null && !token.isBlank());
     }
 
     private void process(String repo, Asset asset) {
@@ -53,6 +53,7 @@ public final class RepoExporter {
 
             if (Files.exists(dest) && expectedSha1 != null
                     && expectedSha1.equalsIgnoreCase(ChecksumUtil.sha1(dest))) {
+                writeSidecarsIfAbsent(dest, asset.checksum());
                 report.skipped(repo);
                 return;
             }
@@ -63,21 +64,24 @@ public final class RepoExporter {
 
             Files.createDirectories(dest.getParent());
             Path tmp = dest.resolveSibling(dest.getFileName() + ".part");
-            client.download(asset.downloadUrl(), tmp);
+            try {
+                client.download(asset.downloadUrl(), tmp);
 
-            if (expectedSha1 != null) {
-                String actual = ChecksumUtil.sha1(tmp);
-                if (!expectedSha1.equalsIgnoreCase(actual)) {
-                    Files.deleteIfExists(tmp);
-                    throw new IOException("checksum mismatch: expected " + expectedSha1 + " got " + actual);
+                if (expectedSha1 != null) {
+                    String actual = ChecksumUtil.sha1(tmp);
+                    if (!expectedSha1.equalsIgnoreCase(actual)) {
+                        throw new IOException("checksum mismatch: expected " + expectedSha1 + " got " + actual);
+                    }
                 }
+                Files.move(tmp, dest, StandardCopyOption.REPLACE_EXISTING);
+                report.downloaded(repo, Files.size(dest));
+                writeSidecars(dest, asset.checksum());
+            } finally {
+                Files.deleteIfExists(tmp);
             }
-            Files.move(tmp, dest, StandardCopyOption.REPLACE_EXISTING);
-            report.downloaded(repo, Files.size(dest));
-            writeSidecars(dest, asset.checksum());
         } catch (Exception e) {
             log.warn("failed {} / {}: {}", repo, asset.path(), e.toString());
-            report.failed(repo, asset.path(), e.getMessage());
+            report.failed(repo, asset.path(), e.toString());
         }
     }
 
@@ -90,6 +94,24 @@ public final class RepoExporter {
         }
         if (checksum.md5() != null) {
             Files.write(dest.resolveSibling(dest.getFileName() + ".md5"), checksum.md5().getBytes(UTF_8));
+        }
+    }
+
+    private void writeSidecarsIfAbsent(Path dest, Checksum checksum) throws IOException {
+        if (checksum == null || isMetadataExtension(dest.getFileName().toString())) {
+            return;
+        }
+        if (checksum.sha1() != null) {
+            Path sha1 = dest.resolveSibling(dest.getFileName() + ".sha1");
+            if (!Files.exists(sha1)) {
+                Files.write(sha1, checksum.sha1().getBytes(UTF_8));
+            }
+        }
+        if (checksum.md5() != null) {
+            Path md5 = dest.resolveSibling(dest.getFileName() + ".md5");
+            if (!Files.exists(md5)) {
+                Files.write(md5, checksum.md5().getBytes(UTF_8));
+            }
         }
     }
 
