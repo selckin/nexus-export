@@ -1,0 +1,6 @@
+[
+  {"name":"releases","format":"maven2","type":"hosted","url":"https://nexus.example.com/repository/releases"},
+  {"name":"snapshots","format":"maven2","type":"hosted","url":"https://nexus.example.com/repository/snapshots"},
+  {"name":"maven-central","format":"maven2","type":"proxy","url":"https://nexus.example.com/repository/maven-central"},
+  {"name":"npm-private","format":"npm","type":"hosted","url":"https://nexus.example.com/repository/npm-private"}
+]

@@ -1,0 +1,17 @@
+{
+  "items": [
+    {
+      "id": "abc123",
+      "path": "com/example/foo/1.0/foo-1.0.jar",
+      "downloadUrl": "https://nexus.example.com/repository/releases/com/example/foo/1.0/foo-1.0.jar",
+      "fileSize": 1234,
+      "contentType": "application/java-archive",
+      "checksum": {
+        "sha1": "0beec7b5ea3f0fdbc95d0dd47f3c5bc275da8a33",
+        "md5": "5d41402abc4b2a76b9719d911017c592",
+        "sha256": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+      }
+    }
+  ],
+  "continuationToken": "next-token-xyz"
+}
