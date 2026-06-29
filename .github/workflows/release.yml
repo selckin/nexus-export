@@ -94,8 +94,23 @@ jobs:
           APPVERSION: ${{ steps.ver.outputs.appversion }}
         run: bash package/build-appimage.sh "$APPVERSION"
 
-      - name: Package app-image (unix)
-        if: runner.os != 'Windows'
+      # Publish the app-image as a run artifact on every build. `path: dist`
+      # uploads the app-image tree itself (dist holds only nexus-export/ or
+      # nexus-export.app), so GitHub's artifact zip IS the app-image — no nested
+      # zip. The name carries the version, so the download is
+      # nexus-export-<version>-<label>.zip. v7 artifacts are immutable, hence the
+      # per-OS unique name.
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: nexus-export-${{ steps.ver.outputs.version }}-${{ matrix.label }}
+          path: dist
+          if-no-files-found: error
+
+      # --- Release path: tag builds only ---
+
+      - name: Package app-image zip (unix)
+        if: runner.os != 'Windows' && startsWith(github.ref, 'refs/tags/v')
         shell: bash
         env:
           VERSION: ${{ steps.ver.outputs.version }}
@@ -105,8 +120,8 @@ jobs:
           # nexus-export* matches the Linux directory and the macOS .app bundle
           zip -qr "../nexus-export-${VERSION}-${LABEL}.zip" nexus-export*
 
-      - name: Package app-image (windows)
-        if: runner.os == 'Windows'
+      - name: Package app-image zip (windows)
+        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         env:
           VERSION: ${{ steps.ver.outputs.version }}
@@ -114,24 +129,12 @@ jobs:
         run: Compress-Archive -Path dist/nexus-export -DestinationPath "nexus-export-$env:VERSION-$env:LABEL.zip"
 
       - name: Stage the portable uber-jar (needs Java 21)
-        if: matrix.label == 'linux-x64'
+        if: matrix.label == 'linux-x64' && startsWith(github.ref, 'refs/tags/v')
         shell: bash
         env:
           VERSION: ${{ steps.ver.outputs.version }}
         run: cp target/nexus-export.jar "nexus-export-${VERSION}.jar"
 
-      # Always publish the build as a run artifact (one per OS — v7 artifacts are
-      # immutable, so the name must be unique per job).
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: nexus-export-${{ matrix.label }}
-          path: |
-            nexus-export-*-${{ matrix.label }}.zip
-            nexus-export-*.jar
-          if-no-files-found: error
-
-      # Tag builds only: attach the same files to the GitHub Release.
       - name: Upload assets to the Release
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash

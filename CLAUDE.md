@@ -47,10 +47,12 @@ passes `--app-version` to jpackage **only** when it's `1-3` dotted integers with
 The version is bundle metadata only — the tool reports its own `--version` from the jar.
 
 `.github/workflows/release.yml` runs on **every branch push** and on `v*` **tags**. The per-OS matrix
-(linux-x64, macos-x64, macos-arm64, windows-x64) always builds + zips the app-image and uploads it as a
-run artifact (`actions/upload-artifact`, one immutable artifact per OS). On a tag, a `create-release` job
-opens the Release first and each matrix job additionally `gh release upload --clobber`s its zip (plus the
-portable jar, from the linux job); on a branch push that step is skipped. Branch builds have no version, so the build id is
+(linux-x64, macos-x64, macos-arm64, windows-x64) always builds the app-image and uploads it as a run
+artifact via `actions/upload-artifact` with `path: dist` — so GitHub's artifact zip *is* the app-image
+tree (no nested zip), one immutable artifact per OS named `nexus-export-<version>-<label>`. On a tag, a
+`create-release` job opens the Release first, then each matrix job additionally zips the app-image and
+`gh release upload --clobber`s it (plus the portable jar, from the linux job); on a branch push those
+release-only steps (zip/jar/upload) are skipped. Branch builds have no version, so the build id is
 `<branch-name-with-slashes-dashed>-<short-sha>` (non-numeric → jpackage default app-version). Runner labels are pinned
 (`macos-15`/`macos-15-intel`, not the migrating `macos-latest`; `macos-13` was retired Dec 2025).
 Publishing uses the GitHub CLI only — **no third-party actions** (only GitHub's own `actions/checkout`,
