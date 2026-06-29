@@ -94,30 +94,32 @@ public final class HttpNexusClient implements NexusClient {
             throws IOException {
         IOException last = null;
         for (int attempt = 1; attempt <= maxRetries; attempt++) {
+            HttpResponse<T> resp;
             try {
-                HttpResponse<T> resp = http.send(req, handler);
-                int s = resp.statusCode();
-                if (s == 401 || s == 403) {
-                    throw new NexusException("authentication failed (HTTP " + s + ") for " + req.uri());
-                }
-                if (s == 429 || s >= 500) {
-                    last = new IOException("HTTP " + s + " for " + req.uri());
-                    log.warn("retryable HTTP {} for {} (attempt {}/{})", s, req.uri(), attempt, maxRetries);
-                } else if (s >= 400) {
-                    throw new IOException("HTTP " + s + " for " + req.uri());
-                } else {
-                    return resp;
-                }
+                resp = http.send(req, handler);
             } catch (IOException e) {
                 last = e;
                 log.warn("request error for {} (attempt {}/{}): {}", req.uri(), attempt, maxRetries, e.toString());
+                if (attempt < maxRetries) sleepBackoff(attempt);
+                continue;
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new IOException("interrupted while requesting " + req.uri(), e);
             }
-            if (attempt < maxRetries) {
-                sleepBackoff(attempt);
+            int s = resp.statusCode();
+            if (s == 401 || s == 403) {
+                throw new NexusException("authentication failed (HTTP " + s + ") for " + req.uri());
             }
+            if (s == 429 || s >= 500) {
+                last = new IOException("HTTP " + s + " for " + req.uri());
+                log.warn("retryable HTTP {} for {} (attempt {}/{})", s, req.uri(), attempt, maxRetries);
+                if (attempt < maxRetries) sleepBackoff(attempt);
+                continue;
+            }
+            if (s >= 400) {
+                throw new IOException("HTTP " + s + " for " + req.uri());
+            }
+            return resp;
         }
         throw last != null ? last : new IOException("request failed: " + req.uri());
     }

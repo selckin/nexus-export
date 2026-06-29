@@ -16,6 +16,8 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import java.io.UncheckedIOException;
+
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -130,5 +132,33 @@ class HttpNexusClientTest {
 
         assertThrows(NexusException.class, () -> client().listRepositories());
         assertEquals(1, calls.get());
+    }
+
+    @Test
+    void nonRetriable4xxThrowsImmediately() {
+        AtomicInteger calls = new AtomicInteger();
+        server.createContext("/service/rest/v1/repositories", ex -> {
+            calls.incrementAndGet();
+            send(ex, 404, "not found".getBytes(UTF_8));
+        });
+        server.start();
+
+        // listRepositories() wraps IOException in UncheckedIOException; verify it is NOT NexusException
+        assertThrows(UncheckedIOException.class, () -> client().listRepositories());
+        assertEquals(1, calls.get());
+    }
+
+    @Test
+    void anonymousClientSendsNoAuthHeader() {
+        AtomicReference<String> seenAuth = new AtomicReference<>();
+        server.createContext("/service/rest/v1/repositories", ex -> {
+            seenAuth.set(ex.getRequestHeaders().getFirst("Authorization"));
+            send(ex, 200, "[]".getBytes(UTF_8));
+        });
+        server.start();
+
+        new HttpNexusClient(base, null, null, 4, Duration.ofMillis(5)).listRepositories();
+
+        assertNull(seenAuth.get());
     }
 }
