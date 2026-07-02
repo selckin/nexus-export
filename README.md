@@ -11,36 +11,36 @@ the actual downloaded bytes so the exported tree stays self-consistent.
 ## Download
 
 Each [GitHub Release](https://github.com/selckin/nexus-export/releases) ships a
-self-contained app-image per OS — every zip bundles a trimmed Java 21 runtime, so
+self-contained app-image per OS — every tarball bundles a trimmed Java 21 runtime, so
 **no Java install is required**:
 
 | Asset | Platform |
 |-------|----------|
-| `nexus-export-<version>-linux-x64.zip`   | Linux x86-64 |
-| `nexus-export-<version>-macos-x64.zip`   | macOS Intel |
-| `nexus-export-<version>-macos-arm64.zip` | macOS Apple Silicon |
-| `nexus-export-<version>-windows-x64.zip` | Windows x86-64 |
+| `nexus-export-<version>-linux-x64.tar.gz`   | Linux x86-64 |
+| `nexus-export-<version>-macos-x64.tar.gz`   | macOS Intel |
+| `nexus-export-<version>-macos-arm64.tar.gz` | macOS Apple Silicon |
+| `nexus-export-<version>-windows-x64.tar.gz` | Windows x86-64 |
 
-Unzip and run the launcher:
+Extract and run the launcher:
 
 ```bash
 # Linux
-unzip nexus-export-<version>-linux-x64.zip
+tar -xzf nexus-export-<version>-linux-x64.tar.gz
 NEXUS_PASSWORD=… ./nexus-export/bin/nexus-export \
   --url https://nexus.example.com --user admin --list
 ```
 
 ```bash
 # macOS (the app-image is a .app bundle)
-unzip nexus-export-<version>-macos-arm64.zip
+tar -xzf nexus-export-<version>-macos-arm64.tar.gz
 xattr -dr com.apple.quarantine ./nexus-export.app     # clear the download quarantine
 NEXUS_PASSWORD=… ./nexus-export.app/Contents/MacOS/nexus-export \
   --url https://nexus.example.com --user admin --list
 ```
 
 ```powershell
-# Windows (PowerShell)
-Expand-Archive nexus-export-<version>-windows-x64.zip -DestinationPath .
+# Windows (PowerShell) — tar ships with Windows 10+
+tar -xzf nexus-export-<version>-windows-x64.tar.gz
 $env:NEXUS_PASSWORD = "…"
 .\nexus-export\nexus-export.exe --url https://nexus.example.com --user admin --list
 ```

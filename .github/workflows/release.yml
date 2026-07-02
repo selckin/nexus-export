@@ -109,24 +109,19 @@ jobs:
 
       # --- Release path: tag builds only ---
 
-      - name: Package app-image zip (unix)
-        if: runner.os != 'Windows' && startsWith(github.ref, 'refs/tags/v')
+      # tar (gzip) on every OS — bsdtar ships as `tar` on the Windows runners and
+      # Git Bash provides it too, so one bash step covers all four. Unlike zip, tar
+      # preserves the launcher's executable bit on Linux/macOS.
+      - name: Package app-image tarball
+        if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         env:
           VERSION: ${{ steps.ver.outputs.version }}
           LABEL: ${{ matrix.label }}
         run: |
           cd dist
-          # nexus-export* matches the Linux directory and the macOS .app bundle
-          zip -qr "../nexus-export-${VERSION}-${LABEL}.zip" nexus-export*
-
-      - name: Package app-image zip (windows)
-        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/v')
-        shell: pwsh
-        env:
-          VERSION: ${{ steps.ver.outputs.version }}
-          LABEL: ${{ matrix.label }}
-        run: Compress-Archive -Path dist/nexus-export -DestinationPath "nexus-export-$env:VERSION-$env:LABEL.zip"
+          # nexus-export* matches the Linux/Windows directory and the macOS .app bundle
+          tar -czf "../nexus-export-${VERSION}-${LABEL}.tar.gz" nexus-export*
 
       - name: Stage the portable uber-jar (needs Java 21)
         if: matrix.label == 'linux-x64' && startsWith(github.ref, 'refs/tags/v')
@@ -142,6 +137,6 @@ jobs:
           TAG: ${{ github.ref_name }}
           LABEL: ${{ matrix.label }}
         run: |
-          assets=( nexus-export-*-"$LABEL".zip )
+          assets=( nexus-export-*-"$LABEL".tar.gz )
           [ "$LABEL" = linux-x64 ] && assets+=( nexus-export-*.jar )
           gh release upload "$TAG" --clobber "${assets[@]}"
