@@ -27,13 +27,20 @@ public final class RepoExporter {
     private final Executor executor;
     private final boolean dryRun;
     private final ExportReport report;
+    private final boolean verifyChecksums;
 
     public RepoExporter(NexusClient client, Path outRoot, Executor executor, boolean dryRun, ExportReport report) {
+        this(client, outRoot, executor, dryRun, report, true);
+    }
+
+    public RepoExporter(NexusClient client, Path outRoot, Executor executor, boolean dryRun,
+                        ExportReport report, boolean verifyChecksums) {
         this.client = client;
         this.outRoot = outRoot;
         this.executor = executor;
         this.dryRun = dryRun;
         this.report = report;
+        this.verifyChecksums = verifyChecksums;
     }
 
     public void export(String repo) {
@@ -118,20 +125,35 @@ public final class RepoExporter {
                 client.download(asset.downloadUrl(), tmp);
 
                 // verify only when a recorded checksum is available
+                String actualSha1 = null;
+                boolean checksumMismatch = false;
                 if (expectedSha1 != null) {
-                    String actual = ChecksumUtil.sha1(tmp);
-                    if (!expectedSha1.equalsIgnoreCase(actual)) {
-                        throw new IOException("checksum mismatch: expected " + expectedSha1 + " got " + actual);
+                    actualSha1 = ChecksumUtil.sha1(tmp);
+                    if (!expectedSha1.equalsIgnoreCase(actualSha1)) {
+                        if (verifyChecksums) {
+                            throw new IOException("checksum mismatch: expected " + expectedSha1 + " got " + actualSha1);
+                        }
+                        // --no-verify-checksums: the source's recorded checksum is untrusted, so keep the
+                        // bytes we actually downloaded and record THEIR checksums below (self-consistent tree).
+                        log.warn("checksum mismatch kept (--no-verify-checksums) {} / {}: expected {} got {}",
+                                repo, asset.path(), expectedSha1, actualSha1);
+                        checksumMismatch = true;
                     }
                 }
                 Files.move(tmp, dest, StandardCopyOption.REPLACE_EXISTING);
                 report.downloaded(repo, Files.size(dest));
-                // when no recorded checksum, compute sha1+md5 for self-describing tree
-                if (asset.checksum() != null) {
+                if (checksumMismatch) {
+                    // additional audit tally so kept-despite-bad-checksum files are visible in the report
+                    report.keptMismatch(repo, asset.path());
+                }
+                // Use the recorded checksum only when it was verified; otherwise (no recorded checksum,
+                // or a mismatch we chose to keep) record sha1+md5 from the downloaded file. dest holds the
+                // same bytes as tmp, so reuse the sha1 already computed above rather than re-hashing.
+                if (asset.checksum() != null && !checksumMismatch) {
                     writeSidecars(dest, asset.checksum(), true);
                 } else {
-                    // No recorded checksum — compute from the downloaded file
-                    writeSidecars(dest, new Checksum(ChecksumUtil.sha1(dest), ChecksumUtil.md5(dest), null), true);
+                    String sha1 = actualSha1 != null ? actualSha1 : ChecksumUtil.sha1(dest);
+                    writeSidecars(dest, new Checksum(sha1, ChecksumUtil.md5(dest), null), true);
                 }
             } finally {
                 Files.deleteIfExists(tmp);

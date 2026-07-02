@@ -11,23 +11,38 @@ import java.util.concurrent.atomic.AtomicLong;
 
 public final class ExportReport {
 
-    static final int MAX_FAILURE_DETAILS = 1000;
+    static final int MAX_DETAILS = 1000;
 
     private static final class Tally {
         final AtomicLong downloaded = new AtomicLong();
         final AtomicLong skipped = new AtomicLong();
         final AtomicLong failed = new AtomicLong();
+        final AtomicLong keptMismatch = new AtomicLong();
         final AtomicLong bytes = new AtomicLong();
     }
 
     private final Map<String, Tally> byRepo = new ConcurrentSkipListMap<>();
     private final List<String> failures = Collections.synchronizedList(new ArrayList<>());
     private final AtomicInteger failureDetailCount = new AtomicInteger();
+    private final List<String> keptMismatches = Collections.synchronizedList(new ArrayList<>());
+    private final AtomicInteger keptMismatchDetailCount = new AtomicInteger();
 
     public void downloaded(String repo, long bytes) {
         Tally t = byRepo.computeIfAbsent(repo, k -> new Tally());
         t.downloaded.incrementAndGet();
         t.bytes.addAndGet(bytes);
+    }
+
+    /**
+     * Records a file kept despite its bytes not matching the source's recorded checksum
+     * (only reachable under {@code --no-verify-checksums}). The file is also counted via
+     * {@link #downloaded}; this is an additional audit tally, not a failure.
+     */
+    public void keptMismatch(String repo, String path) {
+        byRepo.computeIfAbsent(repo, k -> new Tally()).keptMismatch.incrementAndGet();
+        if (keptMismatchDetailCount.incrementAndGet() <= MAX_DETAILS) {
+            keptMismatches.add(repo + "/" + path);
+        }
     }
 
     public void skipped(String repo) {
@@ -36,7 +51,7 @@ public final class ExportReport {
 
     public void failed(String repo, String path, String reason) {
         byRepo.computeIfAbsent(repo, k -> new Tally()).failed.incrementAndGet();
-        if (failureDetailCount.incrementAndGet() <= MAX_FAILURE_DETAILS) {
+        if (failureDetailCount.incrementAndGet() <= MAX_DETAILS) {
             failures.add(repo + "/" + path + ": " + reason);
         }
     }
@@ -53,6 +68,10 @@ public final class ExportReport {
         return byRepo.values().stream().mapToLong(t -> t.failed.get()).sum();
     }
 
+    public long totalKeptMismatch() {
+        return byRepo.values().stream().mapToLong(t -> t.keptMismatch.get()).sum();
+    }
+
     public long totalBytes() {
         return byRepo.values().stream().mapToLong(t -> t.bytes.get()).sum();
     }
@@ -63,24 +82,42 @@ public final class ExportReport {
 
     public String render() {
         StringBuilder sb = new StringBuilder();
-        sb.append(String.format(Locale.ROOT, "totals: downloaded=%d skipped=%d failed=%d bytes=%d%n",
-                totalDownloaded(), totalSkipped(), totalFailed(), totalBytes()));
-        byRepo.forEach((repo, t) -> sb.append(String.format(Locale.ROOT,
-                "  %s: downloaded=%d skipped=%d failed=%d bytes=%d%n",
-                repo, t.downloaded.get(), t.skipped.get(), t.failed.get(), t.bytes.get())));
-        if (!failures.isEmpty()) {
-            sb.append("failures:").append(System.lineSeparator());
-            synchronized (failures) {
-                for (String f : failures) {
-                    sb.append("  ").append(f).append(System.lineSeparator());
-                }
+        long keptTotal = totalKeptMismatch();
+        sb.append(String.format(Locale.ROOT, "totals: downloaded=%d skipped=%d failed=%d",
+                totalDownloaded(), totalSkipped(), totalFailed()));
+        // kept-mismatch is a subset of downloaded; only shown when non-zero to keep clean runs quiet
+        if (keptTotal > 0) {
+            sb.append(String.format(Locale.ROOT, " kept-mismatch=%d", keptTotal));
+        }
+        sb.append(String.format(Locale.ROOT, " bytes=%d%n", totalBytes()));
+        byRepo.forEach((repo, t) -> {
+            sb.append(String.format(Locale.ROOT, "  %s: downloaded=%d skipped=%d failed=%d",
+                    repo, t.downloaded.get(), t.skipped.get(), t.failed.get()));
+            if (t.keptMismatch.get() > 0) {
+                sb.append(String.format(Locale.ROOT, " kept-mismatch=%d", t.keptMismatch.get()));
+            }
+            sb.append(String.format(Locale.ROOT, " bytes=%d%n", t.bytes.get()));
+        });
+        appendDetailSection(sb, "failures:", failures, totalFailed(), "more failures");
+        appendDetailSection(sb, "kept despite checksum mismatch:", keptMismatches, keptTotal, "more kept");
+        return sb.toString();
+    }
+
+    /** Appends a capped detail list (failures, kept mismatches) with an overflow note when truncated. */
+    private static void appendDetailSection(StringBuilder sb, String header, List<String> details,
+                                            long total, String overflowLabel) {
+        if (details.isEmpty()) {
+            return;
+        }
+        sb.append(header).append(System.lineSeparator());
+        synchronized (details) {
+            for (String d : details) {
+                sb.append("  ").append(d).append(System.lineSeparator());
             }
         }
-        long total = totalFailed();
-        if (total > MAX_FAILURE_DETAILS) {
-            sb.append(String.format(Locale.ROOT, "… and %d more failures (detail capped at %d)%n",
-                    total - MAX_FAILURE_DETAILS, MAX_FAILURE_DETAILS));
+        if (total > MAX_DETAILS) {
+            sb.append(String.format(Locale.ROOT, "… and %d %s (detail capped at %d)%n",
+                    total - MAX_DETAILS, overflowLabel, MAX_DETAILS));
         }
-        return sb.toString();
     }
 }

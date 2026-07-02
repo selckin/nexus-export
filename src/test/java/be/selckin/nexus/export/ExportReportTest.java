@@ -23,6 +23,30 @@ class ExportReportTest {
     }
 
     @Test
+    void keptMismatchIsTalliedButNotAFailure() {
+        ExportReport r = new ExportReport();
+        r.downloaded("releases", 100);
+        r.keptMismatch("releases", "com/x/a/1.0/a-1.0.jar");
+
+        // the file was still downloaded; a kept mismatch is an additional audit tally, not a failure
+        assertEquals(1, r.totalDownloaded());
+        assertEquals(1, r.totalKeptMismatch());
+        assertEquals(0, r.totalFailed());
+        assertFalse(r.hasFailures());
+    }
+
+    @Test
+    void renderListsKeptMismatchCountAndPaths() {
+        ExportReport r = new ExportReport();
+        r.downloaded("releases", 100);
+        r.keptMismatch("releases", "com/x/a/1.0/a-1.0.jar");
+
+        String rendered = r.render();
+        assertTrue(rendered.contains("kept-mismatch=1"), rendered);
+        assertTrue(rendered.contains("com/x/a/1.0/a-1.0.jar"), rendered);
+    }
+
+    @Test
     void totalBytesSumsAcrossRepos() {
         ExportReport r = new ExportReport();
         r.downloaded("releases", 100);

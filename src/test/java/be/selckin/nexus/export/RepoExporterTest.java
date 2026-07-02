@@ -80,6 +80,49 @@ class RepoExporterTest {
         assertEquals(1, report.totalDownloaded());
     }
 
+    // ---- checksum mismatch on a fresh download ----
+
+    private FakeNexusClient clientWithWrongChecksum() {
+        // recorded sha1/md5 are bogus; the server actually serves "hello"
+        Asset a = new Asset("1", "com/x/a/1.0/a-1.0.jar", "http://fake/a.jar",
+                new Checksum("0000000000000000000000000000000000000000", "ffffffffffffffffffffffffffffffff", null), 5);
+        return new FakeNexusClient(
+                List.of(new Repository("releases", "maven2", "hosted", "http://fake/releases")),
+                Map.of("releases", List.of(a)),
+                Map.of("http://fake/a.jar", "hello".getBytes(UTF_8)));
+    }
+
+    @Test
+    void failsWhenFreshDownloadMismatchesAndVerifyEnabled(@TempDir Path out) {
+        ExportReport report = new ExportReport();
+
+        // default (verify on): a source-vs-download mismatch fails the asset and writes nothing
+        new RepoExporter(clientWithWrongChecksum(), out, SAME_THREAD, false, report).export("releases");
+
+        assertFalse(Files.exists(out.resolve("releases/com/x/a/1.0/a-1.0.jar")));
+        assertTrue(report.hasFailures());
+        assertEquals(1, report.totalFailed());
+        assertEquals(0, report.totalDownloaded());
+    }
+
+    @Test
+    void keepsFileOnChecksumMismatchWhenVerifyDisabled(@TempDir Path out) throws Exception {
+        ExportReport report = new ExportReport();
+
+        // --no-verify-checksums: keep the downloaded bytes despite the wrong source checksum
+        new RepoExporter(clientWithWrongChecksum(), out, SAME_THREAD, false, report, false).export("releases");
+
+        Path jar = out.resolve("releases/com/x/a/1.0/a-1.0.jar");
+        assertEquals("hello", Files.readString(jar));
+        // sidecars must record the ACTUAL bytes' checksums, not the bogus source ones,
+        // so the exported tree stays self-consistent
+        assertEquals(HELLO_SHA1, Files.readString(out.resolve("releases/com/x/a/1.0/a-1.0.jar.sha1")));
+        assertEquals(HELLO_MD5, Files.readString(out.resolve("releases/com/x/a/1.0/a-1.0.jar.md5")));
+        assertEquals(1, report.totalDownloaded());
+        assertEquals(1, report.totalKeptMismatch());
+        assertFalse(report.hasFailures());
+    }
+
     @Test
     void dryRunWritesNothingButCounts(@TempDir Path out) {
         ExportReport report = new ExportReport();

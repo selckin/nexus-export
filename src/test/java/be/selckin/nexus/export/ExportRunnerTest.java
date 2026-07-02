@@ -112,6 +112,30 @@ class ExportRunnerTest {
     }
 
     @Test
+    void mismatchFailsByDefaultButNoVerifyKeepsFile(@TempDir Path out) throws Exception {
+        // recorded sha1/md5 are bogus; the server actually serves "hello"
+        Asset wrong = new Asset("1", "com/x/a/1.0/a-1.0.jar", "http://fake/a.jar",
+                new Checksum("0000000000000000000000000000000000000000", "ffffffffffffffffffffffffffffffff", null), 5);
+        FakeNexusClient client = new FakeNexusClient(
+                List.of(new Repository("releases", "maven2", "hosted", "http://fake/releases")),
+                Map.of("releases", List.of(wrong)),
+                Map.of("http://fake/a.jar", "hello".getBytes(UTF_8)));
+        Path jar = out.resolve("releases/com/x/a/1.0/a-1.0.jar");
+
+        // default (verify on): mismatch fails the asset → exit 1, nothing written
+        int strict = new ExportRunner(new PrintStream(new ByteArrayOutputStream(), true, UTF_8))
+                .run(client, List.of("releases"), out, false, false, 2, 0);
+        assertEquals(1, strict);
+        assertFalse(Files.exists(jar));
+
+        // verify off: keep the bytes despite the wrong source checksum → exit 0
+        int lenient = new ExportRunner(new PrintStream(new ByteArrayOutputStream(), true, UTF_8))
+                .run(client, List.of("releases"), out, false, false, 2, 0, false);
+        assertEquals(0, lenient);
+        assertEquals("hello", Files.readString(jar));
+    }
+
+    @Test
     void dryRunWritesNothing(@TempDir Path out) {
         int code = new ExportRunner(new PrintStream(new ByteArrayOutputStream(), true, UTF_8))
                 .run(client(), List.of("releases"), out, false, true, 2, 0);

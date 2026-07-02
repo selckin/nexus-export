@@ -42,6 +42,12 @@ public final class Main implements Callable<Integer> {
     @Option(names = "--dry-run", description = "Enumerate and report, but download nothing")
     boolean dryRun;
 
+    @Option(names = "--no-verify-checksums",
+            description = "Keep downloaded files even when they don't match the source's recorded "
+                    + "checksum (for repos with bad checksums on the server); sidecars record the "
+                    + "actual downloaded bytes. Default: mismatches fail the asset.")
+    boolean noVerifyChecksums;
+
     @Override
     public Integer call() {
         try {
@@ -53,7 +59,8 @@ public final class Main implements Callable<Integer> {
             NexusClient client = new HttpNexusClient(resolvedUrl, resolvedUser, resolvedPassword);
             List<String> targetRepos = repos.isEmpty() ? List.of("releases", "snapshots") : repos;
 
-            return new ExportRunner(System.out).run(client, targetRepos, out, list, dryRun, threads, progressInterval);
+            return new ExportRunner(System.out)
+                    .run(client, targetRepos, out, list, dryRun, threads, progressInterval, !noVerifyChecksums);
         } catch (IllegalArgumentException e) {
             System.err.println("ERROR: " + e.getMessage());
             return 2;

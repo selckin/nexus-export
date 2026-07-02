@@ -58,6 +58,12 @@ public final class ExportRunner {
 
     public int run(NexusClient client, List<String> repos, Path outRoot,
                    boolean list, boolean dryRun, int threads, int progressIntervalSeconds) {
+        return run(client, repos, outRoot, list, dryRun, threads, progressIntervalSeconds, true);
+    }
+
+    public int run(NexusClient client, List<String> repos, Path outRoot,
+                   boolean list, boolean dryRun, int threads, int progressIntervalSeconds,
+                   boolean verifyChecksums) {
         // declare report before try so catch blocks can print partial progress
         ExportReport report = new ExportReport();
         try {
@@ -87,7 +93,7 @@ public final class ExportRunner {
                     }
                     matchedCount++;
                     currentRepo.set(repo);
-                    new RepoExporter(client, outRoot, pool, dryRun, report).export(repo);
+                    new RepoExporter(client, outRoot, pool, dryRun, report, verifyChecksums).export(repo);
                 }
                 // if no requested repos matched, that is a fatal configuration error
                 if (!repos.isEmpty() && matchedCount == 0) {

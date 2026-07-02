@@ -7,7 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 A standalone Java 21 CLI that bulk-downloads selected **Nexus 3 hosted Maven repositories** over the
 Nexus REST API into standard on-disk Maven layouts (one directory per source repo), for migrating off
 Nexus 3 to another Maven repository manager. Downloads are SHA-1-verified, `.sha1`/`.md5` sidecars are generated, and re-runs
-skip files already present whose SHA-1 matches (resumable).
+skip files already present whose SHA-1 matches (resumable). `--no-verify-checksums` downgrades a source-vs-download
+mismatch from a per-asset failure to a warning that keeps the bytes (for source repos with bad recorded checksums).
 
 ## Build / test / run
 
@@ -81,6 +82,23 @@ Behaviors that span files and are easy to break:
   place, and writes `.sha1`/`.md5` sidecars. Sidecars are **always generated** from the verified checksums for
   non-metadata files (extensions `.sha1/.md5/.sha256/.sha512/.asc` excluded), and also written on the skip
   path if missing — so the tree is a self-describing Maven repo regardless of how Nexus enumerates sidecars.
+- **`--no-verify-checksums` (opt-in, `RepoExporter.verifyChecksums`):** by default a downloaded file whose SHA-1
+  doesn't match the source's recorded checksum throws → the asset is recorded as a per-asset failure, the `.part`
+  is deleted, nothing is moved into place. With the flag, the mismatch is logged, the bytes are kept, and the
+  asset is additionally recorded via `ExportReport.keptMismatch` (a subset of `downloaded`, surfaced as
+  `kept-mismatch=N` in the report plus a "kept despite checksum mismatch" path list — the audit trail of which
+  artifacts the source disagreed with itself about). Sidecars for a kept file are computed **from the downloaded
+  file** (not the bogus recorded checksum), keeping the exported tree self-consistent. Threaded
+  `Main.noVerifyChecksums` → `ExportRunner.run(..., verifyChecksums)` → `RepoExporter` (5-arg ctor and 7-arg `run`
+  mean verify-on; the extra-arg overloads carry the toggle). Two sharp edges, both **by design**, not bugs:
+    - *Global, not per-asset:* the flag suppresses the SHA-1 check for **every** asset in the run, so genuinely
+      corrupt-in-transit bytes for an otherwise-good asset are also kept (with sidecars recomputed from the
+      corrupt file). The `kept-mismatch` list is the mitigation — inspect it after a run.
+    - *Don't re-run strict into the same `--out`:* the flag does **not** touch the skip logic, so a kept
+      mismatching file still fails the `SHA-1 == recorded` skip check on re-run → it re-downloads each run
+      (idempotent under the flag). A later **strict** run into the same dir re-downloads it, mismatches, throws,
+      and marks it *failed* — but only the `.part` is deleted, so the previously-kept file and its (valid-looking)
+      sidecars persist on disk. Treat a `--no-verify-checksums` output tree as terminal; don't overlay a strict run.
 - **Memory bounding (`RepoExporter.export`):** each page's download futures are joined **before** fetching the
   next page. Do not refactor back to one `allOf` over all pages — that retains a future per asset and OOMs on
   large repos. The pagination loop terminates on a null **or blank** continuation token.
