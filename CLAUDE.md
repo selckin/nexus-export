@@ -47,19 +47,15 @@ passes `--app-version` to jpackage **only** when it's `1-3` dotted integers with
 (e.g. a `v0.x` tag would otherwise fail only the macOS jobs); otherwise jpackage's default is used.
 The version is bundle metadata only — the tool reports its own `--version` from the jar.
 
-`.github/workflows/release.yml` runs on **every branch push** and on `v*` **tags**. The per-OS matrix
-(linux-x64, macos-x64, macos-arm64, windows-x64) always builds the app-image and uploads it as a run
-artifact via `actions/upload-artifact` with `path: dist` — so GitHub's artifact zip *is* the app-image
-tree (no nested zip), one immutable artifact per OS named `nexus-export-<version>-<label>`. On a tag, a
-`create-release` job opens the Release first, then each matrix job additionally tars the app-image (one
-`.tar.gz` per OS, built with `tar` in a single bash step across all four runners) and
-`gh release upload --clobber`s it (plus the portable jar, from the linux job); on a branch push those
-release-only steps (tar/jar/upload) are skipped. Branch builds have no version, so the build id is
-`<branch-name-with-slashes-dashed>-<short-sha>` (non-numeric → jpackage default app-version). Runner labels are pinned
-(`macos-15`/`macos-15-intel`, not the migrating `macos-latest`; `macos-13` was retired Dec 2025).
-Publishing uses the GitHub CLI only — **no third-party actions** (only GitHub's own `actions/checkout`,
-`actions/setup-java`, `actions/upload-artifact`). Ref-derived values flow through `env:` into `$VARS` —
-never `${{ }}`-interpolated into a `run:` body.
+`.github/workflows/release.yml` runs on **every branch push** and on `v*` **tags**: a per-OS matrix
+(linux-x64, macos-x64, macos-arm64, windows-x64) builds the app-image and uploads it as a run artifact;
+on a tag it additionally publishes a Release with a `.tar.gz` per OS plus the portable jar. Three gotchas:
+branch builds have no version, so the build id is `<branch-name-with-slashes-dashed>-<short-sha>`
+(non-numeric → jpackage default app-version, per the macOS rule above); runner labels are pinned
+(`macos-15`/`macos-15-intel`, not the migrating `macos-latest`); and publishing uses the GitHub CLI only —
+**no third-party actions** (only GitHub's own `actions/checkout`, `actions/setup-java`,
+`actions/upload-artifact`), with ref-derived values flowing through `env:` into `$VARS`, never
+`${{ }}`-interpolated into a `run:` body.
 
 ## Architecture
 
@@ -83,23 +79,18 @@ Behaviors that span files and are easy to break:
   place, and writes `.sha1`/`.md5` sidecars. Sidecars are **always generated** from the verified checksums for
   non-metadata files (extensions `.sha1/.md5/.sha256/.sha512/.asc` excluded), and also written on the skip
   path if missing — so the tree is a self-describing Maven repo regardless of how Nexus enumerates sidecars.
-- **`--no-verify-checksums` (opt-in, `RepoExporter.verifyChecksums`):** by default a downloaded file whose SHA-1
-  doesn't match the source's recorded checksum throws → the asset is recorded as a per-asset failure, the `.part`
-  is deleted, nothing is moved into place. With the flag, the mismatch is logged, the bytes are kept, and the
-  asset is additionally recorded via `ExportReport.keptMismatch` (a subset of `downloaded`, surfaced as
-  `kept-mismatch=N` in the report plus a "kept despite checksum mismatch" path list — the audit trail of which
-  artifacts the source disagreed with itself about). Sidecars for a kept file are computed **from the downloaded
-  file** (not the bogus recorded checksum), keeping the exported tree self-consistent. Threaded
-  `Main.noVerifyChecksums` → `ExportRunner.run(..., verifyChecksums)` → `RepoExporter` (5-arg ctor and 7-arg `run`
-  mean verify-on; the extra-arg overloads carry the toggle). Two sharp edges, both **by design**, not bugs:
+- **`--no-verify-checksums` (opt-in, `RepoExporter.verifyChecksums`):** downgrades a SHA-1 mismatch from a
+  per-asset failure to a warning that keeps the bytes, recorded via `ExportReport.keptMismatch` (surfaced as
+  `kept-mismatch=N` plus a path list). Sidecars for a kept file are computed **from the downloaded file**, not
+  the bogus recorded checksum. Two sharp edges, both **by design**, not bugs:
     - *Global, not per-asset:* the flag suppresses the SHA-1 check for **every** asset in the run, so genuinely
-      corrupt-in-transit bytes for an otherwise-good asset are also kept (with sidecars recomputed from the
-      corrupt file). The `kept-mismatch` list is the mitigation — inspect it after a run.
-    - *Don't re-run strict into the same `--out`:* the flag does **not** touch the skip logic, so a kept
-      mismatching file still fails the `SHA-1 == recorded` skip check on re-run → it re-downloads each run
-      (idempotent under the flag). A later **strict** run into the same dir re-downloads it, mismatches, throws,
-      and marks it *failed* — but only the `.part` is deleted, so the previously-kept file and its (valid-looking)
-      sidecars persist on disk. Treat a `--no-verify-checksums` output tree as terminal; don't overlay a strict run.
+      corrupt-in-transit bytes for an otherwise-good asset are also kept. The `kept-mismatch` list is the
+      mitigation — inspect it after a run.
+    - *Never overlay a strict re-run:* the flag does **not** touch the skip logic, so a kept mismatching file
+      re-downloads each run (idempotent under the flag) — but a later **strict** run into the same `--out`
+      re-downloads it, mismatches, and marks it *failed* while only deleting the `.part`, leaving the
+      previously-kept file and its (valid-looking) sidecars on disk. Treat a `--no-verify-checksums` output
+      tree as terminal.
 - **Memory bounding (`RepoExporter.export`):** each page's download futures are joined **before** fetching the
   next page. Do not refactor back to one `allOf` over all pages — that retains a future per asset and OOMs on
   large repos. The pagination loop terminates on a null **or blank** continuation token.
